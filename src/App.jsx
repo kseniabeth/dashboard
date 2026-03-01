@@ -451,8 +451,9 @@ export default function RetirementApp() {
   const activeP1RetAge = calcMode === 'swr' ? calculatedAgeBySWR : (p1RetirementAge === '' ? 65 : Number(p1RetirementAge));
 
   // --- CORE PROJECTION SPREADSHEET ENGINE ---
-  const calculateProjection = (testP1RetAge) => {
-    const vals = getSafeValues();
+  const calculateProjection = (testP1RetAge, overrides = {}) => {
+    const baseVals = getSafeValues();
+    const vals = { ...baseVals, ...overrides };
 
     let curTrad = vals.n_balanceTrad;
     let curRoth = vals.n_balanceRoth;
@@ -562,6 +563,11 @@ export default function RetirementApp() {
       } else {
         workingRatio = !isP1Retired ? 1 : 0;
         contribRatio = !isP1Retired ? 1 : 0;
+      }
+
+      // Check for override: stop saving early
+      if (vals.stopSavingAge && p1AgeYears >= vals.stopSavingAge) {
+        contribRatio = 0;
       }
       
       const phaseText = workingRatio === 1 ? 'Working' : (workingRatio === 0 ? 'Retired' : 'Transition');
@@ -777,6 +783,70 @@ export default function RetirementApp() {
     const blob = new Blob([[headers.join(','), ...csvRows].join('\n')], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.setAttribute('download', `retirement_projection_${viewMode}.csv`); link.click();
   };
+
+  // --- WHAT-IF SCENARIOS ---
+  const scenarios = useMemo(() => {
+    const vals = getSafeValues();
+    const baseRetAge = activeP1RetAge;
+    const currentAge = Math.floor(((vals.n_startYear - vals.n_p1BirthYear) * 12 + (vals.n_startMonth - vals.n_p1BirthMonth)) / 12);
+    
+    // 1. How much more to retire earlier?
+    const earlierResults = [1, 3, 5].map(yearsEarlier => {
+      const targetAge = baseRetAge - yearsEarlier;
+      if (targetAge <= currentAge) return { yearsEarlier, possible: false };
+
+      // Simple binary search for extra annual savings needed
+      let low = 0;
+      let high = 500000; // Sensible max extra savings
+      let extraNeeded = high;
+      
+      for (let i = 0; i < 20; i++) {
+        let mid = (low + high) / 2;
+        // Distribute extra savings across Trad/Roth proportionately or just Trad for simplicity
+        const overrides = {
+          n_contribTrad: vals.n_contribTrad + mid
+        };
+        if (calculateProjection(targetAge, overrides).endBal >= 0) {
+          extraNeeded = mid;
+          high = mid;
+        } else {
+          low = mid;
+        }
+      }
+      
+      return { 
+        yearsEarlier, 
+        targetAge,
+        extraNeeded: extraNeeded >= 499000 ? null : extraNeeded,
+        possible: extraNeeded < 499000
+      };
+    });
+
+    // 2. What if I stopped saving earlier?
+    const coastResults = [1, 2, 3, 5].map(yearsEarlyStop => {
+      const stopSavingAge = baseRetAge - yearsEarlyStop;
+      if (stopSavingAge <= currentAge) return { yearsEarlyStop, possible: false };
+
+      // Find new safe retirement age
+      let newSafeAge = null;
+      for (let age = stopSavingAge; age <= vals.n_targetEndAge; age++) {
+        if (calculateProjection(age, { stopSavingAge }).endBal >= 0) {
+          newSafeAge = age;
+          break;
+        }
+      }
+
+      return {
+        yearsEarlyStop,
+        stopSavingAge,
+        newSafeAge,
+        delay: newSafeAge ? newSafeAge - baseRetAge : null,
+        possible: !!newSafeAge
+      };
+    });
+
+    return { earlierResults, coastResults };
+  }, [activeP1RetAge, startYear, startMonth, p1BirthYear, p1BirthMonth, balanceTrad, balanceRoth, balanceCash, contribTrad, contribRoth, contribCash, annualReturn, cashReturn, totalBaseAnnualExpenses, adjustments, targetEndAge, transitionDrop, stateTaxRate, numAdults, advancedMode, homeEquity, annualMortgagePrincipal, mortgagePayoffYear, swrRate, isCustomSwr, calcMode]);
 
   const inputClass = "block w-full rounded-md border border-slate-300 py-1.5 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white shadow-sm placeholder-slate-300 transition-colors";
 
@@ -1056,9 +1126,10 @@ export default function RetirementApp() {
 
             {/* View Toggles */}
             <div className="flex bg-slate-200/70 p-1 rounded-lg border border-slate-300 flex-1 sm:flex-none justify-center shadow-inner">
-              <button onClick={() => setViewMode('monthly')} className={`flex-1 sm:flex-none px-4 py-1.5 text-sm font-bold rounded-md transition-all ${viewMode === 'monthly' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-300/50'}`}>Mo.</button>
-              <button onClick={() => setViewMode('yearly')} className={`flex-1 sm:flex-none px-4 py-1.5 text-sm font-bold rounded-md transition-all ${viewMode === 'yearly' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-300/50'}`}>Yr.</button>
-              <button onClick={() => setViewMode('chart')} className={`flex-1 sm:flex-none px-4 py-1.5 text-sm font-bold rounded-md transition-all ${viewMode === 'chart' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-300/50'}`}>Chart</button>
+              <button onClick={() => setViewMode('monthly')} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs sm:text-sm font-bold rounded-md transition-all ${viewMode === 'monthly' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-300/50'}`}>Mo.</button>
+              <button onClick={() => setViewMode('yearly')} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs sm:text-sm font-bold rounded-md transition-all ${viewMode === 'yearly' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-300/50'}`}>Yr.</button>
+              <button onClick={() => setViewMode('chart')} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs sm:text-sm font-bold rounded-md transition-all ${viewMode === 'chart' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-300/50'}`}>Chart</button>
+              <button onClick={() => setViewMode('sims')} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs sm:text-sm font-bold rounded-md transition-all ${viewMode === 'sims' ? 'bg-purple-600 text-white shadow-md' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-300/50'}`}>Sims</button>
             </div>
             
             <button onClick={handleExportCSV} className="w-full sm:w-auto flex items-center justify-center px-4 py-1.5 text-sm font-bold rounded-lg bg-slate-800 text-white hover:bg-slate-900 transition-colors shadow-sm"><Download className="w-4 h-4 mr-1.5" /> Export</button>
@@ -1095,7 +1166,139 @@ export default function RetirementApp() {
           </div>
         </div>
 
-        {viewMode === 'chart' ? (
+        {viewMode === 'sims' ? (
+          <div className="px-4 mb-8 flex-1">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden h-full flex flex-col">
+              <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between flex-shrink-0">
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center">
+                    <Activity className="w-5 h-5 mr-2 text-purple-600" /> Scenario Simulations
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Automated thought experiments based on your current assumptions.</p>
+                </div>
+                <div className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">Experimental</div>
+              </div>
+              
+              <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  
+                  {/* Retire Earlier Scenario */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-bold text-slate-700 flex items-center">
+                        <Target className="w-4 h-4 mr-2 text-blue-500" /> Retire Earlier Analysis
+                      </h4>
+                      <Info className="w-4 h-4 text-slate-300 cursor-help" title="Calculates extra annual savings needed to reach your goal earlier." />
+                    </div>
+                    <div className="grid gap-3">
+                      {scenarios.earlierResults.map((res, i) => (
+                        <div key={i} className="flex items-center justify-between p-4 rounded-xl bg-blue-50/50 border border-blue-100 hover:border-blue-300 transition-all group">
+                          <div className="flex items-center">
+                            <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-bold mr-4">-{res.yearsEarlier}y</div>
+                            <div>
+                              <div className="text-sm font-bold text-slate-800">Retire at Age {res.targetAge}</div>
+                              <div className="text-xs text-slate-500">vs current Age {activeP1RetAge}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-4">
+                            <div className="text-right">
+                              {res.possible ? (
+                                <>
+                                  <div className="text-base font-bold text-blue-700">+{formatCurrency(res.extraNeeded)}<span className="text-[10px] ml-0.5">/yr</span></div>
+                                  <div className="text-[10px] text-blue-600 font-bold uppercase tracking-tighter">Extra Savings Needed</div>
+                                </>
+                              ) : (
+                                <div className="text-xs text-slate-400 font-bold uppercase">Not possible</div>
+                              )}
+                            </div>
+                            {res.possible && calcMode === 'fixed' && (
+                              <button 
+                                onClick={() => {
+                                  setContribTrad(prev => (Number(prev) || 0) + res.extraNeeded);
+                                  setP1RetirementAge(res.targetAge);
+                                  setViewMode('yearly');
+                                }}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity bg-blue-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg hover:bg-blue-700 shadow-sm"
+                              >
+                                Apply
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Stop Saving Early Scenario */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-bold text-slate-700 flex items-center">
+                        <Coffee className="w-4 h-4 mr-2 text-orange-500" /> Stop Saving Early (Coast)
+                      </h4>
+                      <Info className="w-4 h-4 text-slate-300 cursor-help" title="Calculates how much longer you'd work if you stopped contributions early." />
+                    </div>
+                    <div className="grid gap-3">
+                      {scenarios.coastResults.map((res, i) => (
+                        <div key={i} className="flex items-center justify-between p-4 rounded-xl bg-orange-50/50 border border-orange-100 hover:border-orange-300 transition-all group">
+                          <div className="flex items-center">
+                            <div className="w-10 h-10 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center text-sm font-bold mr-4">-{res.yearsEarlyStop}y</div>
+                            <div>
+                              <div className="text-sm font-bold text-slate-800">Stop Saving @ Age {res.stopSavingAge}</div>
+                              <div className="text-xs text-slate-500">Coast to retirement</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-4">
+                            <div className="text-right">
+                              {res.possible ? (
+                                <>
+                                  <div className="text-base font-bold text-orange-700">Age {res.newSafeAge}</div>
+                                  <div className="text-[10px] text-orange-600 font-bold uppercase tracking-tighter">+{res.delay} Year Delay</div>
+                                </>
+                              ) : (
+                                <div className="text-xs text-slate-400 font-bold uppercase">Plan Fails</div>
+                              )}
+                            </div>
+                            {res.possible && calcMode === 'fixed' && (
+                              <button 
+                                onClick={() => {
+                                  // This is tricky because calculateProjection uses an internal override.
+                                  // For a real "apply", we'd need to add a "Stop Saving Age" state.
+                                  // For now, let's just update the retirement age.
+                                  setP1RetirementAge(res.newSafeAge);
+                                  setViewMode('yearly');
+                                }}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity bg-orange-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg hover:bg-orange-700 shadow-sm"
+                              >
+                                Apply
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                </div>
+
+                <div className="mt-12 p-6 rounded-2xl bg-slate-50 border border-slate-200 border-dashed">
+                  <div className="flex items-start space-x-4">
+                    <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-sm">
+                      <TrendingUp className="w-5 h-5 text-purple-600" />
+                    </div>
+                    <div>
+                      <h5 className="text-sm font-bold text-slate-800 mb-1">How these simulations work</h5>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        <strong>Retire Earlier:</strong> We use a binary search algorithm to calculate the exact amount of additional annual savings needed to keep your ending balance at \$0 or above while moving your retirement date forward.
+                        <br /><br />
+                        <strong>Coast Retirement:</strong> We simulate a scenario where you completely stop all new contributions at a specified age, but keep your money invested. We then find the earliest age at which you can retire without running out of money.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : viewMode === 'chart' ? (
           <div className="flex-1 p-4 sm:p-6 min-h-[400px] bg-white mx-4 mb-4 border border-slate-200 rounded-xl shadow-sm">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={yearlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>

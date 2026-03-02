@@ -163,15 +163,12 @@ export default function RetirementApp() {
   
   const [annualReturn, setAnnualReturn] = useState(5.0); 
   const [cashReturn, setCashReturn] = useState(1.5); 
-  const [inflationRate, setInflationRate] = useState(0.0);
   const [targetBufferYears, setTargetBufferYears] = useState(3.0); 
   const [bufferBuildYears, setBufferBuildYears] = useState(5.0); 
   
   // Transition & Tax Settings (Advanced)
   const [transitionDrop, setTransitionDrop] = useState(50);
   const [stateTaxRate, setStateTaxRate] = useState(0.0);
-  const [contribIncreaseRate, setContribIncreaseRate] = useState(0.0);
-  const [isContribInflationAdjusted, setIsContribInflationAdjusted] = useState(true);
 
   // Stress Testing
   const [enableCrash, setEnableCrash] = useState(false);
@@ -252,8 +249,7 @@ export default function RetirementApp() {
       p1BirthYear, p1BirthMonth, p1RetirementAge, p1SsStartAge, p1MaxSs,
       p2BirthYear, p2BirthMonth, p2RetirementAge, p2SsStartAge, p2MaxSs,
       balanceTrad, balanceRoth, balanceCash, homeEquity, annualMortgagePrincipal, mortgagePayoffYear,
-      contribTrad, contribRoth, contribCash, annualReturn, cashReturn, inflationRate, targetBufferYears, bufferBuildYears, transitionDrop, stateTaxRate,
-      contribIncreaseRate, isContribInflationAdjusted,
+      contribTrad, contribRoth, contribCash, annualReturn, cashReturn, targetBufferYears, bufferBuildYears, transitionDrop, stateTaxRate,
       enableCrash, crashAge, crashPercent,
       expenses, adjustments
     };
@@ -418,15 +414,10 @@ export default function RetirementApp() {
     const monthlyReturnRate = Math.pow(1 + vals.n_annualReturn / 100, 1 / 12) - 1;
     const monthlyCashReturnRate = Math.pow(1 + vals.n_cashReturn / 100, 1 / 12) - 1;
     const monthlyHomeReturnRate = Math.pow(1 + 1 / 100, 1 / 12) - 1;
-    const monthlyInflationFactor = Math.pow(1 + vals.n_inflationRate / 100, 1 / 12);
-    const monthlyContribIncreaseFactor = Math.pow(1 + vals.n_contribIncreaseRate / 100, 1 / 12);
     const stateRate = vals.n_stateTaxRate / 100;
 
     const startAgeInMonthsSWR = (vals.n_startYear - vals.n_p1BirthYear) * 12 + (vals.n_startMonth - vals.n_p1BirthMonth);
     const totalMonthsToRunSWR = Math.max(12, (vals.n_targetEndAge * 12) - startAgeInMonthsSWR);
-
-    let cumulativeInflation = 1.0;
-    let cumulativeContribIncrease = 1.0;
 
     for (let i = 0; i < totalMonthsToRunSWR; i++) { 
       const year = currentDate.getFullYear();
@@ -435,18 +426,10 @@ export default function RetirementApp() {
       const p1AgeMonthsTotal = (year - p1BirthDateObj.getFullYear()) * 12 + (month - p1BirthDateObj.getMonth());
       const p1AgeYears = Math.floor(p1AgeMonthsTotal / 12);
 
-      cumulativeInflation *= monthlyInflationFactor;
-      if (i > 0) {
-        cumulativeContribIncrease *= monthlyContribIncreaseFactor;
-        if (isContribInflationAdjusted) {
-          cumulativeContribIncrease *= monthlyInflationFactor;
-        }
-      }
-
-      let currentAnnualExpenses = totalBaseAnnualExpenses * cumulativeInflation;
+      let currentAnnualExpenses = totalBaseAnnualExpenses;
       adjustments.forEach(adj => {
         const trigger = Number(adj.trigger) || 0;
-        const amount = (Number(adj.amount) || 0) * cumulativeInflation;
+        const amount = Number(adj.amount) || 0;
         if (adj.type === 'year' && year >= trigger) currentAnnualExpenses += amount;
         else if (adj.type === 'age' && p1AgeYears >= trigger) currentAnnualExpenses += amount;
       });
@@ -462,15 +445,15 @@ export default function RetirementApp() {
 
       let moMortgagePrincipal = year <= vals.n_mortgagePayoffYear ? (vals.n_annualMortgagePrincipal / 12) : 0;
       
-      curTrad += (curTrad > 0 ? curTrad * monthlyReturnRate : 0) + (vals.n_contribTrad / 12) * cumulativeContribIncrease;
-      curRoth += (curRoth > 0 ? curRoth * monthlyReturnRate : 0) + (vals.n_contribRoth / 12) * cumulativeContribIncrease;
-      curCash += (curCash > 0 ? curCash * monthlyCashReturnRate : 0) + (vals.n_contribCash / 12) * cumulativeContribIncrease;
+      curTrad += (curTrad > 0 ? curTrad * monthlyReturnRate : 0) + (vals.n_contribTrad / 12);
+      curRoth += (curRoth > 0 ? curRoth * monthlyReturnRate : 0) + (vals.n_contribRoth / 12);
+      curCash += (curCash > 0 ? curCash * monthlyCashReturnRate : 0) + (vals.n_contribCash / 12);
       curHome += (curHome > 0 ? curHome * monthlyHomeReturnRate : 0) + moMortgagePrincipal;
 
       currentDate.setMonth(currentDate.getMonth() + 1);
     }
     return vals.n_targetEndAge; 
-  }, [calcMode, swrRate, startYear, startMonth, p1BirthYear, p1BirthMonth, targetEndAge, p1RetirementAge, balanceTrad, balanceRoth, balanceCash, homeEquity, annualMortgagePrincipal, mortgagePayoffYear, contribTrad, contribRoth, contribCash, annualReturn, cashReturn, inflationRate, stateTaxRate, contribIncreaseRate, isContribInflationAdjusted, totalBaseAnnualExpenses, adjustments]);
+  }, [calcMode, swrRate, startYear, startMonth, p1BirthYear, p1BirthMonth, targetEndAge, p1RetirementAge, balanceTrad, balanceRoth, balanceCash, homeEquity, annualMortgagePrincipal, mortgagePayoffYear, contribTrad, contribRoth, contribCash, annualReturn, cashReturn, stateTaxRate, totalBaseAnnualExpenses, adjustments]);
 
   const activeP1RetAge = calcMode === 'swr' ? calculatedAgeBySWR : (p1RetirementAge === '' ? 65 : Number(p1RetirementAge));
 
@@ -498,15 +481,11 @@ export default function RetirementApp() {
     const monthlyReturnRate = Math.pow(1 + vals.n_annualReturn / 100, 1 / 12) - 1;
     const monthlyCashReturnRate = Math.pow(1 + vals.n_cashReturn / 100, 1 / 12) - 1;
     const monthlyHomeReturnRate = Math.pow(1 + 1 / 100, 1 / 12) - 1; 
-    const monthlyInflationFactor = Math.pow(1 + vals.n_inflationRate / 100, 1 / 12);
-    const monthlyContribIncreaseFactor = Math.pow(1 + vals.n_contribIncreaseRate / 100, 1 / 12);
 
     const startAgeInMonths = (vals.n_startYear - vals.n_p1BirthYear) * 12 + (vals.n_startMonth - vals.n_p1BirthMonth);
     const totalMonthsToRun = Math.max(12, (vals.n_targetEndAge * 12) - startAgeInMonths);
 
     let hasCrashed = false;
-    let cumulativeInflation = 1.0;
-    let cumulativeContribIncrease = 1.0;
 
     // --- TAX OPTIMIZATION HELPER ---
     const drawFromTrad = (netNeeded, currentIncome, maxRateAllowed) => {
@@ -555,14 +534,6 @@ export default function RetirementApp() {
       const month = currentDate.getMonth();
       const monthName = months[month];
 
-      cumulativeInflation *= monthlyInflationFactor;
-      if (i > 0) {
-        cumulativeContribIncrease *= monthlyContribIncreaseFactor;
-        if (isContribInflationAdjusted) {
-          cumulativeContribIncrease *= monthlyInflationFactor;
-        }
-      }
-
       let tradStart = curTrad, rothStart = curRoth, cashStart = curCash, homeStart = curHome;
       let tradDrawnExp = 0, rothDrawnExp = 0, cashDrawnExp = 0;
       let tradDrawnBuf = 0, rothDrawnBuf = 0, cashTransferIn = 0;
@@ -608,10 +579,10 @@ export default function RetirementApp() {
       
       const phaseText = workingRatio === 1 ? 'Working' : (workingRatio === 0 ? 'Retired' : 'Transition');
 
-      let currentAnnualExpenses = totalBaseAnnualExpenses * cumulativeInflation;
+      let currentAnnualExpenses = totalBaseAnnualExpenses;
       adjustments.forEach(adj => {
         const trigger = Number(adj.trigger) || 0;
-        const amount = (Number(adj.amount) || 0) * cumulativeInflation;
+        const amount = Number(adj.amount) || 0;
         if (adj.type === 'year' && year >= trigger) currentAnnualExpenses += amount;
         else if (adj.type === 'age' && p1AgeYears >= trigger) currentAnnualExpenses += amount;
       });
@@ -625,8 +596,8 @@ export default function RetirementApp() {
 
       // Social Security Tax Logic
       let ssIncome = 0;
-      if (p1AgeYears > vals.n_p1SsStartAge || (p1AgeYears === vals.n_p1SsStartAge && p1AgeMonths >= 0)) ssIncome += vals.n_p1MaxSs * cumulativeInflation;
-      if (numAdults === 2 && (p2AgeYears > activeP2SsStartAge || (p2AgeYears === activeP2SsStartAge && p2AgeMonths >= 0))) ssIncome += activeP2MaxSs * cumulativeInflation;
+      if (p1AgeYears > vals.n_p1SsStartAge || (p1AgeYears === vals.n_p1SsStartAge && p1AgeMonths >= 0)) ssIncome += vals.n_p1MaxSs;
+      if (numAdults === 2 && (p2AgeYears > activeP2SsStartAge || (p2AgeYears === activeP2SsStartAge && p2AgeMonths >= 0))) ssIncome += activeP2MaxSs;
 
       let taxableSS = ssIncome * 0.85;
       let baseFedTax = 0;
@@ -671,9 +642,9 @@ export default function RetirementApp() {
           monthsUntilRet = (testP1RetAge * 12) - p1AgeMonthsTotal;
       }
 
-      let moTrad = ((vals.n_contribTrad / 12) * contribRatio) * cumulativeContribIncrease;
-      let moRoth = ((vals.n_contribRoth / 12) * contribRatio) * cumulativeContribIncrease;
-      let moCash = ((vals.n_contribCash / 12) * contribRatio) * cumulativeContribIncrease;
+      let moTrad = (vals.n_contribTrad / 12) * contribRatio;
+      let moRoth = (vals.n_contribRoth / 12) * contribRatio;
+      let moCash = (vals.n_contribCash / 12) * contribRatio;
 
       if (vals.n_targetBufferYears > 0 && monthsUntilRet > 0) {
         const buildWindowMonths = advancedMode ? (vals.n_bufferBuildYears * 12) : 9999; 
@@ -882,7 +853,7 @@ export default function RetirementApp() {
     });
 
     return { earlierResults, coastResults };
-  }, [activeP1RetAge, startYear, startMonth, p1BirthYear, p1BirthMonth, balanceTrad, balanceRoth, balanceCash, contribTrad, contribRoth, contribCash, annualReturn, cashReturn, inflationRate, contribIncreaseRate, isContribInflationAdjusted, totalBaseAnnualExpenses, adjustments, targetEndAge, transitionDrop, stateTaxRate, numAdults, advancedMode, homeEquity, annualMortgagePrincipal, mortgagePayoffYear, swrRate, isCustomSwr, calcMode]);
+  }, [activeP1RetAge, startYear, startMonth, p1BirthYear, p1BirthMonth, balanceTrad, balanceRoth, balanceCash, contribTrad, contribRoth, contribCash, annualReturn, cashReturn, totalBaseAnnualExpenses, adjustments, targetEndAge, transitionDrop, stateTaxRate, numAdults, advancedMode, homeEquity, annualMortgagePrincipal, mortgagePayoffYear, swrRate, isCustomSwr, calcMode]);
 
   const inputClass = "block w-full rounded-md border border-slate-300 py-1.5 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white shadow-sm placeholder-slate-300 transition-colors";
 
@@ -1031,13 +1002,6 @@ export default function RetirementApp() {
                 </div>
               </>
             )}
-          </div>
-
-          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center"><TrendingUp className="w-4 h-4 mr-2 text-blue-500" /> Economic Assumptions</h3>
-            <InputGroup label="Annual Inflation Rate (%)" description="Applied to expenses and Social Security.">
-              <NumberInput step="0.1" className={inputClass} value={inflationRate} onChange={setInflationRate} placeholder="0.0" />
-            </InputGroup>
           </div>
 
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
